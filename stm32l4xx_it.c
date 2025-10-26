@@ -41,10 +41,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-extern volatile uint32_t pulse_width;
-extern volatile uint32_t signal_polarity;
-extern volatile uint32_t last_captured;
-extern volatile uint32_t distanceCM;
+extern volatile uint32_t pulse_width, pulse_width2, pulse_width3;
+extern volatile uint32_t signal_polarity, signal_polarity2, signal_polarity3;
+extern volatile uint32_t last_captured, last_captured2,last_captured3;
+extern volatile uint32_t distanceCM, distanceCM2, distanceCM3;
+
+
 
 /* USER CODE END PV */
 
@@ -223,37 +225,79 @@ void DMA1_Channel1_IRQHandler(void)
 void TIM4_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM4_IRQn 0 */
-	uint32_t current_captured;
+    uint32_t current_captured;
+    uint32_t current_captured2;
+    uint32_t current_captured3;
 
-	    // Check Input Capture Flag (CC1IF)
-	    if((TIM4->SR & TIM_SR_CC1IF) != 0)
-	    {
-	        current_captured = TIM4->CCR1; // Read the captured value
+    // --- Channel 1 ---
+    if (TIM4->SR & TIM_SR_CC1IF)
+    {
+        current_captured = TIM4->CCR1; // read the captured value
+        signal_polarity = 1 - signal_polarity;
 
-	        signal_polarity = 1 - signal_polarity; // Toggle polarity flag (1=Rising, 0=Falling)
+        if (signal_polarity == 0) // Falling edge
+        {
+        	//pulse_width = current_captured - last_captured
+            if (current_captured >= last_captured)
+                pulse_width = current_captured - last_captured;
+            else
+                pulse_width = (TIM4->ARR - last_captured + current_captured + 1);
 
-	        if(signal_polarity == 0) // FALLING EDGE (Measurement Complete)
-	        {
-	            pulse_width = current_captured - last_captured;
+            //calculate the distance immediately using 40 µs/tick
+            distanceCM = (pulse_width / 58) + 6; // assuming 1 µs tick
+        }
 
-	            // CRITICAL: Calculate distance immediately using 40 µs/tick
-	            uint32_t pulseTimeUs = (pulse_width * 40);
-	            distanceCM = (pulseTimeUs / 58);
-	        }
+        last_captured = current_captured; //store for next edge
+        TIM4->SR &= ~TIM_SR_CC1IF; // clear the cc1 interrupt flag
+    }
 
-	        last_captured = current_captured;    // Store for the next edge
+    // --- Channel 2 ---
+    if (TIM4->SR & TIM_SR_CC2IF)
+    {
+        current_captured2 = TIM4->CCR2;
+        signal_polarity2 = 1 - signal_polarity2;
 
-	        TIM4->SR &= ~TIM_SR_CC1IF; // Clear the CC1 interrupt flag
-	    }
+        if (signal_polarity2 == 0) // Falling edge
+        {
+            if (current_captured2 >= last_captured2)
+                pulse_width2 = current_captured2 - last_captured2;
+            else
+                pulse_width2 = (TIM4->ARR - last_captured2 + current_captured2 + 1);
 
-	    // Handle Timer Overflow (Update Flag)
-	    if((TIM4->SR & TIM_SR_UIF) != 0)
-	    {
-	        // Add overflow counter logic here if needed for max range > 2.6m
-	        TIM4->SR &= ~(TIM_SR_UIF); // Clear the UIF flag
-	    }
+            distanceCM2 = (pulse_width2 / 58) + 6; // assuming 1 µs tick
+        }
+
+        last_captured2 = current_captured2;
+        TIM4->SR &= ~TIM_SR_CC2IF;
+    }
+
+    // --- Channel 3 ---
+    if (TIM4->SR & TIM_SR_CC3IF)
+    {
+        current_captured3 = TIM4->CCR3;
+        signal_polarity3 = 1 - signal_polarity3;
+
+        if (signal_polarity3 == 0) // Falling edge
+        {
+            if (current_captured3 >= last_captured3)
+                pulse_width3 = current_captured3 - last_captured3;
+            else
+                pulse_width2 = (TIM4->ARR - last_captured3 + current_captured3 + 1);
+
+            distanceCM3 = (pulse_width3 / 58) + 6; // assuming 1 µs tick
+        }
+
+        last_captured3 = current_captured3;
+        TIM4->SR &= ~TIM_SR_CC3IF;
+    }
+
+    // --- Overflow (optional) ---
+    if (TIM4->SR & TIM_SR_UIF)
+    {
+        TIM4->SR &= ~TIM_SR_UIF;
+    }
   /* USER CODE END TIM4_IRQn 0 */
-  //HAL_TIM_IRQHandler(&htim4);
+  HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
 
   /* USER CODE END TIM4_IRQn 1 */
