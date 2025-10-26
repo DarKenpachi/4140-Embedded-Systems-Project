@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32l4xx_it.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -47,10 +46,30 @@ DMA_HandleTypeDef hdma_tim4_ch1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+/*              ultrasonic sensor 1           */
 volatile uint32_t pulse_width = 0;
 volatile uint32_t signal_polarity = 0;
 volatile uint32_t last_captured = 0;
 volatile uint32_t distanceCM = 0;
+
+/*              ultrasonic sensor 2           */
+volatile uint32_t pulse_width2 = 0;
+volatile uint32_t signal_polarity2 = 0;
+volatile uint32_t last_captured2 = 0;
+volatile uint32_t distanceCM2 = 0;
+
+/*              ultrasonic sensor 3           */
+volatile uint32_t pulse_width3 = 0;
+volatile uint32_t signal_polarity3 = 0;
+volatile uint32_t last_captured3 = 0;
+volatile uint32_t distanceCM3 = 0;
+
+/***************************************************************************/
+/*                         For the blue button on the board               */
+/**************************************************************************/
+GPIO_PinState button_state; // external pushbutton (PA4)
+volatile uint32_t lastPressed = 0;
+const uint32_t Delay_MS = 50;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,6 +81,8 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void delayMicroseconds(uint32_t microseconds);
 void Trigger_Pulse();
+void Trigger_Pulse2();
+void Trigger_Pulse3();
 
 /* USER CODE END PFP */
 
@@ -104,6 +125,8 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1); //start the timer in input capture interrupt mode
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2); //start the timer in input capture interrupt mode
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_3); //start the timer in input capture interrupt mode
   HAL_TIM_Base_Start_IT(&htim4); //start base interrupt for overflow tracking
 
   /* USER CODE END 2 */
@@ -114,14 +137,43 @@ int main(void)
   signal_polarity = 0;
   last_captured = 0;
 
+  pulse_width2 = 0;
+  signal_polarity2 = 0;
+  last_captured2 = 0;
+
+  pulse_width3 = 0;
+  signal_polarity3 = 0;
+  last_captured3 = 0;
+
+  uint8_t button_prev_state = GPIO_PIN_SET; // assume button not pressed initially
+  uint8_t button_flag = 0;					// Flag: 0 = stopped, 1 = running
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	 Trigger_Pulse();
-	 HAL_Delay(50);
-	 HAL_Delay(1000); // 5. Delay before the next cycle starts (1 seconds).
+
+	  // --- Read button state ---
+	 button_state = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4);
+
+	 // --- Detect rising edge of button press ---
+	 if (button_prev_state == GPIO_PIN_SET && button_state == GPIO_PIN_RESET)
+	 {
+		 button_flag = 1;  // start measurement on first press
+	 }
+	 /* Save current state for next loop */
+	 button_prev_state = button_state;
+
+	// ------- call the triggers ----------
+	 if (button_flag)
+	 {
+		 Trigger_Pulse();
+		 Trigger_Pulse2();
+		 Trigger_Pulse3();
+		 HAL_Delay(50);
+		 //HAL_Delay(100); // 5. Delay before the next cycle starts 100 ms.
+	 }
   }
   /* USER CODE END 3 */
 }
@@ -195,7 +247,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 159;
+  htim4.Init.Prescaler = 79;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 65535;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -224,6 +276,14 @@ static void MX_TIM4_Init(void)
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
   sConfigIC.ICFilter = 0;
   if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -303,30 +363,20 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, Trigger_Pin|Trigger2_Pin|Trigger3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  /*Configure GPIO pin : External_Pushbutton_Pin */
+  GPIO_InitStruct.Pin = External_Pushbutton_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(External_Pushbutton_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pins : Trigger_Pin Trigger2_Pin Trigger3_Pin */
+  GPIO_InitStruct.Pin = Trigger_Pin|Trigger2_Pin|Trigger3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : Trigger_Pin */
-  GPIO_InitStruct.Pin = Trigger_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Trigger_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -357,11 +407,23 @@ void delayMicroseconds(uint32_t microseconds)
 
 void Trigger_Pulse()
 {
-    GPIOB -> ODR |= (1 << 13); //set pin high
+    GPIOB -> ODR |= (1 << 13); //set PB13 high
+    delayMicroseconds(10); //10 micro second pulse
+    GPIOB -> ODR &= ~(1 << 13); // set PB13 low. clear pin
+}
 
-    delayMicroseconds(10);
+void Trigger_Pulse2()
+{
+    GPIOB -> ODR |= (1 << 14); //set PB14 high
+    delayMicroseconds(10); //10 micro second pulse
+    GPIOB -> ODR &= ~(1 << 14); // set PB14 low. clear pin
+}
 
-    GPIOB -> ODR &= ~(1 << 13); //clear pin
+void Trigger_Pulse3()
+{
+    GPIOB -> ODR |= (1 << 15); //set PB15 high
+    delayMicroseconds(10); //10 micro second pulse
+    GPIOB -> ODR &= ~(1 << 15); // set PB15 low. clear pin
 }
 
 /* USER CODE END 4 */
