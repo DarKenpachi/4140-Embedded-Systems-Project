@@ -35,12 +35,11 @@
 /* USER CODE BEGIN PD */
 #define BASE_SPEED 60
 #define MAX_SPEED 100
-#define MAX_STEERING_ADJ 40
-#define TURN_SPEED 50
-#define SAFE_DISTANCE 30
+#define MAX_STEERING_ADJ 60
+#define SAFE_DISTANCE 40.0f
 #define SETPOINT 0.0f
-#define KP 1.0f
-#define KI 0.2f
+#define KP 4.5f
+#define KI 1.7f
 #define KD 0.2f
 /* USER CODE END PD */
 
@@ -53,8 +52,16 @@
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 DMA_HandleTypeDef hdma_tim4_ch1;
+DMA_HandleTypeDef hdma_tim4_ch2;
+DMA_HandleTypeDef hdma_tim4_ch3;
 
 /* USER CODE BEGIN PV */
+volatile float front_cm;
+volatile float left_cm;
+volatile float right_cm;
+volatile float centering_err = 0.0f;
+volatile float steering_adj = 0.0f;
+volatile uint8_t left_speed, right_speed;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,12 +113,12 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  PID_Controller *pid;
+  PID_Controller pid;
   Sensors *sensor[NUM_SENSORS] = {0};
 
   Motor_Init();
   sensors_init();
-  PID_Init(&pid, KP, KI, KD, SETPOINT, -MAX_SPEED, MAX_SPEED);
+  PID_Init(&pid, KP, KI, KD, SETPOINT, -MAX_STEERING_ADJ, MAX_STEERING_ADJ);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -121,19 +128,51 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  float front_cm = sensor[0]->distance_cm;
-	  float left_cm = sensor[1]->distance_cm;
-	  float right_cm = sensor[2]->distance_cm;
 
+    /* USER CODE BEGIN 3 */
 	  Trigger_Pulse();
 
-	  if(front_cm < SAFE_DISTANCE){
-		  if(front_cm < (SAFE_DISTANCE / 2)){
+	  front_cm = sensor[0]->distance_cm;
+	  left_cm  = sensor[1]->distance_cm;
+	  right_cm = sensor[2]->distance_cm;
 
+	  centering_err = left_cm - right_cm;
+
+	  if(front_cm < SAFE_DISTANCE){
+		  if(front_cm < (SAFE_DISTANCE / 3.2)){
+			  Motor_Direction(MOTOR_BACKWARD, MOTOR_BACKWARD);
+			  Motor_Speed(BASE_SPEED, BASE_SPEED);
+
+			  if(front_cm > SAFE_DISTANCE){
+				  Motor_Direction(MOTOR_BRAKE, MOTOR_BRAKE);
+				  Motor_Speed(0,0);
+				  HAL_Delay(10);
+			  }
 		  }
 
+		  steering_adj = PID_Compute(&pid, centering_err);
+		  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
+
+		  left_speed = BASE_SPEED + steering_adj;
+		  right_speed = BASE_SPEED - steering_adj;
+
+		  Motor_Speed(left_speed, right_speed);
 	  }
-    /* USER CODE BEGIN 3 */
+	  else if(front_cm > SAFE_DISTANCE){
+		  steering_adj = PID_Compute(&pid, centering_err);
+
+		  if(front_cm > (SAFE_DISTANCE*3)){
+			  left_speed = (BASE_SPEED + 10) + steering_adj;
+			  right_speed = (BASE_SPEED + 10) - steering_adj;
+		  }
+		  else{
+			  left_speed = BASE_SPEED + steering_adj;
+			  right_speed = BASE_SPEED - steering_adj;
+		  }
+
+		  Motor_Speed(left_speed, right_speed);
+		  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -294,7 +333,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_BOTHEDGE;
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
   sConfigIC.ICFilter = 0;
@@ -302,6 +341,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_BOTHEDGE;
   if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
@@ -329,6 +369,12 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
 
@@ -351,13 +397,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
-                          |GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin
+                          |Front_Sensor_Pin|Left_Sensor_Pin|Right_Sensor_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PC0 PC1 PC2 PC3
-                           PC6 PC7 PC8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
-                          |GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8;
+  /*Configure GPIO pins : IN1_Pin IN2_Pin IN3_Pin IN4_Pin
+                           Front_Sensor_Pin Left_Sensor_Pin Right_Sensor_Pin */
+  GPIO_InitStruct.Pin = IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin
+                          |Front_Sensor_Pin|Left_Sensor_Pin|Right_Sensor_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -386,13 +432,13 @@ void Trigger_Pulse(void)
     delayMicroseconds(10); // 10us pulse
     HAL_GPIO_WritePin(LEFT_TRIG_PORT, LEFT_TRIG_PIN, GPIO_PIN_RESET);
 
-    HAL_Delay(5);
+    HAL_Delay(1);
 
     HAL_GPIO_WritePin(FRONT_TRIG_PORT, FRONT_TRIG_PIN, GPIO_PIN_SET);
     delayMicroseconds(10); // 10us pulse
     HAL_GPIO_WritePin(FRONT_TRIG_PORT, FRONT_TRIG_PIN, GPIO_PIN_RESET);
 
-	HAL_Delay(5);
+	HAL_Delay(1);
 
     HAL_GPIO_WritePin(RIGHT_TRIG_PORT, RIGHT_TRIG_PIN, GPIO_PIN_SET);
     delayMicroseconds(10); // 10us pulse

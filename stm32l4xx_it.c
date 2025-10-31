@@ -42,32 +42,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+Sensors sensor[NUM_SENSORS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-void sensor_handle(Sensors *sensor, uint32_t ccr_val){
 
-    if (sensor->signal_polarity == 0) // RISING EDGE
-    {
-        sensor->last_captured = ccr_val;
-        sensor->signal_polarity = 1;
-    }
-    else // FALLING EDGE
-    {
-        sensor->pulse_width = ccr_val - sensor->last_captured;
-
-        if (ccr_val < sensor->last_captured) {
-
-            sensor->pulse_width = (65535 - sensor->last_captured) + ccr_val;
-        }
-
-        sensor->distance_cm = (sensor->pulse_width / 58);
-
-        sensor->signal_polarity = 0;
-    }
-}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -77,6 +57,8 @@ void sensor_handle(Sensors *sensor, uint32_t ccr_val){
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_tim4_ch1;
+extern DMA_HandleTypeDef hdma_tim4_ch2;
+extern DMA_HandleTypeDef hdma_tim4_ch3;
 extern TIM_HandleTypeDef htim4;
 /* USER CODE BEGIN EV */
 
@@ -235,12 +217,39 @@ void DMA1_Channel1_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA1 channel4 global interrupt.
+  */
+void DMA1_Channel4_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel4_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel4_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_tim4_ch2);
+  /* USER CODE BEGIN DMA1_Channel4_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel4_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 channel5 global interrupt.
+  */
+void DMA1_Channel5_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel5_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel5_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_tim4_ch3);
+  /* USER CODE BEGIN DMA1_Channel5_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel5_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM4 global interrupt.
   */
 void TIM4_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM4_IRQn 0 */
-	Sensors *sensor[NUM_SENSORS];
 	uint32_t current_captured;
 
 	if((TIM4->SR & TIM_SR_CC1IF) != 0){

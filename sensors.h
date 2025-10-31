@@ -25,5 +25,6 @@ typedef struct{
 } Sensors;
 
 void sensors_init();
+void sensor_handle(Sensors*, uint32_t);
 
 #endif /* INC_SENSORS_H_ */

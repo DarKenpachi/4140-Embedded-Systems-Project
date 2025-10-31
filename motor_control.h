@@ -21,14 +21,6 @@ extern TIM_HandleTypeDef htim2;
 #define MAX_PWM_PULSE __HAL_TIM_GET_AUTORELOAD(PWM_TIMER)
 
 typedef enum{
-	ROVER_STOP,
-	ROVER_FORWARD,
-	ROVER_BACKWARD,
-	ROVER_LEFT,
-	ROVER_RIGHT
-} Rover_Direction;
-
-typedef enum{
 	MOTOR_COAST,
 	MOTOR_BRAKE,
 	MOTOR_FORWARD,

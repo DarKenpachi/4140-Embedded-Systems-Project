@@ -17,3 +17,24 @@ void sensors_init(){
 	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
 	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_3);
 }
+void sensor_handle(Sensors *sensor, uint32_t ccr_val){
+
+    if (sensor->signal_polarity == 0) // RISING EDGE
+    {
+        sensor->last_captured = ccr_val;
+        sensor->signal_polarity = 1;
+    }
+    else // FALLING EDGE
+    {
+        sensor->pulse_width = ccr_val - sensor->last_captured;
+
+        if (ccr_val < sensor->last_captured) {
+
+            sensor->pulse_width = (65535 - sensor->last_captured) + ccr_val;
+        }
+
+        sensor->distance_cm = (sensor->pulse_width / 58);
+
+        sensor->signal_polarity = 0;
+    }
+}
