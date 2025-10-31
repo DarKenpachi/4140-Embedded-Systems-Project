@@ -22,6 +22,7 @@
 #include "stm32l4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "sensors.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,16 +42,32 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-extern volatile uint32_t pulse_width;
-extern volatile uint32_t signal_polarity;
-extern volatile uint32_t last_captured;
-extern volatile uint32_t distanceCM;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+void sensor_handle(Sensors *sensor, uint32_t ccr_val){
 
+    if (sensor->signal_polarity == 0) // RISING EDGE
+    {
+        sensor->last_captured = ccr_val;
+        sensor->signal_polarity = 1;
+    }
+    else // FALLING EDGE
+    {
+        sensor->pulse_width = ccr_val - sensor->last_captured;
+
+        if (ccr_val < sensor->last_captured) {
+
+            sensor->pulse_width = (65535 - sensor->last_captured) + ccr_val;
+        }
+
+        sensor->distance_cm = (sensor->pulse_width / 58);
+
+        sensor->signal_polarity = 0;
+    }
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -223,35 +240,26 @@ void DMA1_Channel1_IRQHandler(void)
 void TIM4_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM4_IRQn 0 */
+	Sensors *sensor[NUM_SENSORS];
 	uint32_t current_captured;
 
-	    // Check Input Capture Flag (CC1IF)
-	    if((TIM4->SR & TIM_SR_CC1IF) != 0)
-	    {
-	        current_captured = TIM4->CCR1; // Read the captured value
+	if((TIM4->SR & TIM_SR_CC1IF) != 0){
+		current_captured = TIM4->CCR1;
+		sensor_handle(&sensor[0], current_captured);
+		TIM4->SR &= ~TIM_SR_CC1IF;
+	}
 
-	        signal_polarity = 1 - signal_polarity; // Toggle polarity flag (1=Rising, 0=Falling)
+	if((TIM4->SR & TIM_SR_CC2IF) != 0){
+		current_captured = TIM4->CCR2;
+		sensor_handle(&sensor[1], current_captured);
+		TIM4->SR &= ~TIM_SR_CC2IF;
+		}
 
-	        if(signal_polarity == 0) // FALLING EDGE (Measurement Complete)
-	        {
-	            pulse_width = current_captured - last_captured;
-
-	            // CRITICAL: Calculate distance immediately using 40 µs/tick
-	            uint32_t pulseTimeUs = (pulse_width * 40);
-	            distanceCM = (pulseTimeUs / 58);
-	        }
-
-	        last_captured = current_captured;    // Store for the next edge
-
-	        TIM4->SR &= ~TIM_SR_CC1IF; // Clear the CC1 interrupt flag
-	    }
-
-	    // Handle Timer Overflow (Update Flag)
-	    if((TIM4->SR & TIM_SR_UIF) != 0)
-	    {
-	        // Add overflow counter logic here if needed for max range > 2.6m
-	        TIM4->SR &= ~(TIM_SR_UIF); // Clear the UIF flag
-	    }
+	if((TIM4->SR & TIM_SR_CC3IF) != 0){
+		current_captured = TIM4->CCR3;
+		sensor_handle(&sensor[2], current_captured);
+		TIM4->SR &= ~TIM_SR_CC3IF;
+		}
   /* USER CODE END TIM4_IRQn 0 */
   //HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
