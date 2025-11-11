@@ -42,7 +42,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-Sensors sensor[NUM_SENSORS];
+volatile Sensors sensor[NUM_SENSORS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -251,24 +251,29 @@ void TIM4_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM4_IRQn 0 */
 	uint32_t current_captured;
-
 	if((TIM4->SR & TIM_SR_CC1IF) != 0){
 		current_captured = TIM4->CCR1;
-		sensor_handle(&sensor[0], current_captured);
+		sensor_handle(&sensor, current_captured, 0);
 		TIM4->SR &= ~TIM_SR_CC1IF;
 	}
 
 	if((TIM4->SR & TIM_SR_CC2IF) != 0){
 		current_captured = TIM4->CCR2;
-		sensor_handle(&sensor[1], current_captured);
+		sensor_handle(&sensor, current_captured, 1);
 		TIM4->SR &= ~TIM_SR_CC2IF;
-		}
+	}
 
 	if((TIM4->SR & TIM_SR_CC3IF) != 0){
 		current_captured = TIM4->CCR3;
-		sensor_handle(&sensor[2], current_captured);
+		sensor_handle(&sensor, current_captured, 2);
 		TIM4->SR &= ~TIM_SR_CC3IF;
-		}
+	}
+
+	if((TIM4->SR & TIM_SR_CC4IF) != 0){
+		current_captured = TIM4->CCR4;
+		sensor_handle(&sensor, current_captured, 3);
+		TIM4->SR &= ~TIM_SR_CC4IF;
+	}
   /* USER CODE END TIM4_IRQn 0 */
   //HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */

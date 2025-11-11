@@ -28,7 +28,7 @@ typedef enum{
 } Motor_Spin;
 
 void Motor_Init(void);
-void Motor_Speed(uint8_t speed_left, uint8_t speed_right);
+void Motor_Speed(int8_t speed_left, int8_t speed_right);
 void Motor_Direction(Motor_Spin left_dir, Motor_Spin right_dir);
 
 #endif /* INC_MOTOR_CONTROL_H_ */

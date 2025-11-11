@@ -12,8 +12,11 @@
 #define RIGHT_TRIG_PORT GPIOC
 #define RIGHT_TRIG_PIN GPIO_PIN_8
 
+#define BACK_TRIG_PORT GPIOC
+#define BACK_TRIG_PIN GPIO_PIN_9
+
 extern TIM_HandleTypeDef htim4;
-#define NUM_SENSORS 3
+#define NUM_SENSORS 4
 
 typedef struct{
 
@@ -24,7 +27,11 @@ typedef struct{
 
 } Sensors;
 
-void sensors_init();
-void sensor_handle(Sensors*, uint32_t);
+volatile extern Sensors sensor[NUM_SENSORS];
+
+void sensors_init(Sensors*);
+void sensor_handle(Sensors*, uint32_t, uint8_t);
+void Trigger_Pulse();
+void delayMicroseconds(uint32_t);
 
 #endif /* INC_SENSORS_H_ */

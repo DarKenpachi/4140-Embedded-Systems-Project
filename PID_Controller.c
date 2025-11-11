@@ -3,7 +3,7 @@
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)))
 
 void PID_Init(PID_Controller *pid, float Kp, float Ki, float Kd, float setpoint,
-													float min_out, float max_out){
+													int8_t min_out, int8_t max_out){
 	pid->Kp = Kp;
 	pid->Ki = Ki;
 	pid->Kd = Kd;
@@ -14,17 +14,17 @@ void PID_Init(PID_Controller *pid, float Kp, float Ki, float Kd, float setpoint,
 	pid->max_output = max_out;
 }
 
-float PID_Compute(PID_Controller *pid, float current_value){
+int8_t PID_Compute(PID_Controller *pid, float current_value, float delta){
 
 	float error = pid->setpoint - current_value;
 
 	float p = pid->Kp * error;
 
-	pid->integral += error;
-	pid->integral = CLAMP(pid->integral, pid->min_output / pid->Ki, pid->max_output / pid->Ki);
+	pid->integral += error * delta;
+	pid->integral = CLAMP(pid->integral, pid->min_output / pid->Ki, (pid->max_output / pid->Ki));
 	float i = pid->Ki * pid->integral;
 
-	float derivative = error - pid->prev_error;
+	float derivative = (error - pid->prev_error) / delta;
 	float d = pid->Kd * derivative;
 
 	float output = p + i + d;

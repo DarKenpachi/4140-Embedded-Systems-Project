@@ -11,17 +11,18 @@ void Motor_Init(){
 	Motor_Direction(MOTOR_BRAKE, MOTOR_BRAKE);
 }
 
-void Motor_Speed(uint8_t speed_left, uint8_t speed_right){
+void Motor_Speed(int8_t speed_left, int8_t speed_right){
 
-	speed_left = CLAMP(speed_left, 0, 100);
-	speed_right = CLAMP(speed_right, 0, 100);
+	//speed_left = CLAMP(speed_left, 0, 95);
+	//speed_right = CLAMP(speed_right, 0, 95);
 
-	uint32_t pulse_left = (speed_left * MAX_PWM_PULSE) / 100;
-	uint32_t pulse_right = (speed_right * MAX_PWM_PULSE) / 100;
+	uint32_t pulse_left = (abs(speed_left) * MAX_PWM_PULSE) / 100;
+	uint32_t pulse_right = (abs(speed_right) * MAX_PWM_PULSE) / 100;
 
 	__HAL_TIM_SET_COMPARE(PWM_TIMER, LEFT_PWM_CHANNEL, pulse_left);
 	__HAL_TIM_SET_COMPARE(PWM_TIMER, RIGHT_PWM_CHANNEL, pulse_right);
 }
+
 void Motor_Direction(Motor_Spin left_dir, Motor_Spin right_dir){
 
 	switch(left_dir){
@@ -70,7 +71,3 @@ void Motor_Direction(Motor_Spin left_dir, Motor_Spin right_dir){
 			break;
 	    }
 }
-
-
-
-
