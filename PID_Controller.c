@@ -7,24 +7,33 @@ void PID_Init(PID_Controller *pid, float Kp, float Ki, float Kd, float setpoint,
 	pid->Kp = Kp;
 	pid->Ki = Ki;
 	pid->Kd = Kd;
+	pid->min_output = min_out;
+	pid->max_output = max_out;
 	pid->setpoint = setpoint;
 	pid->prev_error = 0.0f;
 	pid->integral = 0.0f;
-	pid->min_output = min_out;
-	pid->max_output = max_out;
 }
 
-int8_t PID_Compute(PID_Controller *pid, float current_value, float delta){
+float PID_Compute(PID_Controller *pid, float current_value, float delta, int8_t flag){
 
-	float error = pid->setpoint - current_value;
+	float error;
+
+	if(!flag){
+		error = pid->setpoint - current_value;
+	}
+	else{
+		error = current_value;
+	}
 
 	float p = pid->Kp * error;
 
 	pid->integral += error * delta;
-	pid->integral = CLAMP(pid->integral, pid->min_output / pid->Ki, (pid->max_output / pid->Ki));
+	pid->integral = CLAMP(pid->integral, pid->min_output / pid->Ki, pid->max_output / pid->Ki);
+
 	float i = pid->Ki * pid->integral;
 
 	float derivative = (error - pid->prev_error) / delta;
+
 	float d = pid->Kd * derivative;
 
 	float output = p + i + d;

@@ -18,7 +18,7 @@ extern TIM_HandleTypeDef htim2;
 #define LEFT_PWM_CHANNEL	TIM_CHANNEL_1
 #define RIGHT_PWM_CHANNEL	TIM_CHANNEL_2
 
-#define MAX_PWM_PULSE __HAL_TIM_GET_AUTORELOAD(PWM_TIMER)
+#define MAX_PWM __HAL_TIM_GET_AUTORELOAD(PWM_TIMER)
 
 typedef enum{
 	MOTOR_COAST,
@@ -28,7 +28,7 @@ typedef enum{
 } Motor_Spin;
 
 void Motor_Init(void);
-void Motor_Speed(int8_t speed_left, int8_t speed_right);
+void Motor_Speed(int16_t speed_left, int16_t speed_right);
 void Motor_Direction(Motor_Spin left_dir, Motor_Spin right_dir);
 
 #endif /* INC_MOTOR_CONTROL_H_ */

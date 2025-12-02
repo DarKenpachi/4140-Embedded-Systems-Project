@@ -10,19 +10,23 @@ void Motor_Init(){
 	Motor_Speed(0, 0);
 	Motor_Direction(MOTOR_BRAKE, MOTOR_BRAKE);
 }
+//sets the pwm output to the motors and caluculates the pulses to range them from 0 to 999
+void Motor_Speed(int16_t speed_left, int16_t speed_right){
 
-void Motor_Speed(int8_t speed_left, int8_t speed_right){
+	int32_t pulse_left  = (speed_left * MAX_PWM / 100);
+	int32_t pulse_right = (speed_right * MAX_PWM / 100);
 
-	//speed_left = CLAMP(speed_left, 0, 95);
-	//speed_right = CLAMP(speed_right, 0, 95);
-
-	uint32_t pulse_left = (abs(speed_left) * MAX_PWM_PULSE) / 100;
-	uint32_t pulse_right = (abs(speed_right) * MAX_PWM_PULSE) / 100;
+	pulse_left = CLAMP(pulse_left, 350, MAX_PWM);
+	pulse_right = CLAMP(pulse_right, 350, MAX_PWM);
 
 	__HAL_TIM_SET_COMPARE(PWM_TIMER, LEFT_PWM_CHANNEL, pulse_left);
 	__HAL_TIM_SET_COMPARE(PWM_TIMER, RIGHT_PWM_CHANNEL, pulse_right);
 }
-
+//logic control to spin the direction of the motors.
+// 0 0 means high impeadence
+// 1 0 means forward direction
+// 0 1 means backward direction
+// 1 1 means high impeadence
 void Motor_Direction(Motor_Spin left_dir, Motor_Spin right_dir){
 
 	switch(left_dir){

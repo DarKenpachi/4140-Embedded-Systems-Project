@@ -18,11 +18,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "PID_Controller.h"
 #include "motor_control.h"
 #include "sensors.h"
+#include "math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,21 +39,21 @@
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)))
 
 //Rover parameters
-#define MAX_SPEED 95
-#define MIN_SPEED 45
-#define SAFE_DIST 35.0f
-#define CRITICAL_DIST 12.5f
+#define MAX_SPEED 80
+#define SAFE_DIST 65.0f
 #define SETPOINT 0.0f
 
 //Steering PID gains
-#define KP_Steer 1.5f
-#define KI_Steer 0.7f
-#define KD_Steer 0.2f
+#define KP_Steer 0.62f
+#define KI_Steer 0.0f
+#define KD_Steer 0.0375f
 
 //Speed PID gains
-#define KP_Speed 4.9f
-#define KI_Speed 1.5f
-#define KD_Speed 0.3f
+#define KP_Speed 0.92f
+#define KI_Speed 0.12f
+#define KD_Speed 0.0f
+
+#define ALPHA 0.9f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,6 +63,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 DMA_HandleTypeDef hdma_tim4_ch1;
 DMA_HandleTypeDef hdma_tim4_ch2;
@@ -71,18 +74,35 @@ volatile float front_cm;
 volatile float left_cm;
 volatile float right_cm;
 volatile float back_cm;
-volatile float back_dist_traveled = 0.0f;
-volatile float current_back_dist = 0.0f;
-volatile float prev_back_dist = 0.0f;
+
 volatile float centering_err = 0.0f;
 volatile float steering_adj  = 0.0f;
-volatile int8_t base_speed = 0;
-volatile int8_t speed_adj = 0;
-volatile int8_t speed_err = 0;
-volatile int8_t left_speed  = 0;
-volatile int8_t right_speed = 0;
-volatile int8_t current_right_speed = 0;
-volatile int8_t current_left_speed = 0;
+
+volatile float front_filtered = 0.0f;
+volatile float right_filtered = 0.0f;
+volatile float left_filtered = 0.0f;
+
+volatile float prev_front_filtered = 0.0f;
+volatile float prev_right_filtered = 0.0f;
+volatile float prev_left_filtered = 0.0f;
+
+volatile int16_t base_speed = 0;
+volatile int16_t speed_err = 0;
+volatile int16_t left_speed  = 0;
+volatile int16_t right_speed = 0;
+volatile int8_t flag = 0;
+
+static uint32_t counter = 0;
+
+extern Sensors sensor[NUM_SENSORS];
+
+GPIO_PinState button_state;
+volatile GPIO_PinState Red;
+volatile GPIO_PinState Green;
+volatile GPIO_PinState Blue;
+
+uint16_t blink_interval_ticks = 0;
+int8_t buzzer_enabled = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -91,13 +111,17 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
+void RGB_SetColor( uint8_t, uint8_t, uint8_t);
+void RGB_Off();
+void buzzer_RGB(float);
+void oled_Display(float);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -132,15 +156,23 @@ int main(void)
   MX_DMA_Init();
   MX_TIM2_Init();
   MX_TIM4_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   PID_Controller pid_steer;
   PID_Controller pid_speed;
 
   Motor_Init();
-  sensors_init(&sensor);
-  PID_Init(&pid_steer, KP_Steer, KI_Steer, KD_Steer, SETPOINT, -MIN_SPEED, MAX_SPEED);
-  PID_Init(&pid_speed, KP_Speed, KI_Speed, KD_Speed, SAFE_DIST, -MIN_SPEED, MAX_SPEED);
+  sensors_init(sensor);
+  PID_Init(&pid_steer, KP_Steer, KI_Steer, KD_Steer, SETPOINT, -MAX_SPEED, MAX_SPEED);
+  PID_Init(&pid_speed, KP_Speed, KI_Speed, KD_Speed, SAFE_DIST, -MAX_SPEED, MAX_SPEED);
+
+  HAL_TIM_Base_Start_IT(&htim3);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+
   uint32_t last_tick = HAL_GetTick();
+  uint8_t button_flag = 0;
+  uint8_t first_run = 1;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -150,152 +182,70 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  button_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);
 
-	  Trigger_Pulse();
-
-	  front_cm = sensor[0].distance_cm;
-	  left_cm  = sensor[1].distance_cm;
-	  right_cm = sensor[2].distance_cm;
-	  back_cm  = sensor[3].distance_cm;
-
-	  HAL_Delay(10);
-
-	  uint32_t current_tick = HAL_GetTick();
-	  float delta = (current_tick - last_tick) / 1000.0f;
-	  last_tick = current_tick;
-
-	  centering_err = left_cm - right_cm;
-	  speed_err = SAFE_DIST - front_cm;
-
-	  base_speed = PID_Compute(&pid_speed, speed_err, delta);
-	  steering_adj = PID_Compute(&pid_steer, centering_err, delta);
-
-	  left_speed = base_speed + steering_adj;
-	  right_speed = base_speed - steering_adj;
-
-	  if(left_speed < -MAX_SPEED){
-		  left_speed = -MAX_SPEED;
+	  if((HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET) && (button_state == GPIO_PIN_RESET)){
+		  button_flag = 1;
 	  }
-	  else if(left_speed > MAX_SPEED){
-		  left_speed = MAX_SPEED;
-	  }
+	  // starts on button press
+	  if(button_flag){
 
-	  if(right_speed < -MAX_SPEED){
-		  right_speed = -MAX_SPEED;
-	  }
-	  else if(right_speed > MAX_SPEED){
-		  right_speed = MAX_SPEED;
-	  }
+		  Trigger_Pulse();
 
-	  if((left_speed < 0) && (right_speed > 0)){
+		  front_cm = sensor[0].distance_cm;
+		  left_cm  = sensor[1].distance_cm;
+		  right_cm = sensor[2].distance_cm;
 
-		  Motor_Direction(MOTOR_BACKWARD, MOTOR_FORWARD);
-		  HAL_Delay(10);
-	  }
-	  else if((left_speed > 0) && (right_speed < 0)){
+		  if(first_run) {
+			  front_filtered = front_cm;
+			  left_filtered = left_cm;
+			  right_filtered = right_cm;
 
-		  Motor_Direction(MOTOR_FORWARD, MOTOR_BACKWARD);
-		  HAL_Delay(25);
-	  }
-	  else if((left_speed < 0) && (right_speed < 0)){
-
-		  Motor_Direction(MOTOR_BACKWARD, MOTOR_BACKWARD);
-		  HAL_Delay(10);
-	  }
-	  else {
-		  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
-		  HAL_Delay(10);
-	  }
-	  TIM2->CCR1 = abs(left_speed);
-	  TIM2->CCR2 = abs(right_speed);
-	  //Motor_Speed(left_speed, right_speed);
-	  HAL_Delay(50);
-	  /*
-	  if(front_cm < CRITICAL_DIST){
-
-		  Motor_Direction(MOTOR_BRAKE, MOTOR_BRAKE);
-		  HAL_Delay(200);
-
-		  if((back_cm > 5.0f) || (back_dist_traveled < 25.0f)){
-
-			  HAL_GPIO_WritePin(BACK_TRIG_PORT, BACK_TRIG_PIN, GPIO_PIN_SET);
-			  delayMicroseconds(10);
-			  HAL_GPIO_WritePin(BACK_TRIG_PORT, BACK_TRIG_PIN, GPIO_PIN_RESET);
-
-			  HAL_Delay(20);
-
-			  back_cm = sensor[3].distance_cm;
-
-			  Motor_Direction(MOTOR_BACKWARD, MOTOR_BACKWARD);
-			  Motor_Speed(BASE_SPEED, BASE_SPEED);
-
-			  current_back_dist = back_cm;
-			  back_dist_traveled += prev_back_dist - current_back_dist;
-			  prev_back_dist = current_back_dist;
+			  first_run = 0;
 		  }
-
-		  Motor_Direction(MOTOR_BRAKE, MOTOR_BRAKE);
-		  Motor_Speed(0,0);
-		  HAL_Delay(200);
-	  }
-	  else if(front_cm < SAFE_DIST){
-
-		  if(left_cm > right_cm){
-
-			  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
-			  Motor_Speed(MIN_SPEED, BASE_SPEED);
-			  HAL_Delay(600);
+		  else {
+			  //filters the signal noise to get accurate readings
+			  front_filtered = (ALPHA * front_cm) + ((1 - ALPHA) * prev_front_filtered);
+			  left_filtered  = (ALPHA * left_cm) + ((1 - ALPHA) * prev_left_filtered);
+			  right_filtered = (ALPHA * right_cm) + ((1 - ALPHA) * prev_right_filtered);
 		  }
+		  buzzer_RGB(front_filtered);
 
-		  else if(right_cm > left_cm){
+		  uint32_t current_tick = HAL_GetTick();
+		  float delta = (float)(current_tick - last_tick) / 1000.0f;
+		  last_tick = current_tick;
 
-			  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
-			  Motor_Speed(BASE_SPEED, MIN_SPEED);
-			  HAL_Delay(600);
-		  }
+		  //error to feed PID to calculate steering and speed output
+		  centering_err = left_filtered - right_filtered;
+		  speed_err =  front_filtered - SAFE_DIST;
 
-		  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
-		  steering_adj = PID_Compute(&pid_steer, centering_err, delta);
-		  speed_adj = PID_Compute(&pid_speed, speed_err, delta);
+		  base_speed = PID_Compute(&pid_speed, speed_err, delta, 1);
+		  steering_adj = PID_Compute(&pid_steer, centering_err, delta, 0);
 
-		  left_speed = BASE_SPEED + steering_adj;
-		  right_speed = BASE_SPEED - steering_adj;
+		  base_speed = CLAMP(base_speed, 0, MAX_SPEED);
 
-		  Motor_Speed(left_speed, right_speed);
-	  }
-	  else{
+		  left_speed = CLAMP((base_speed + steering_adj), -MAX_SPEED, MAX_SPEED);
+		  right_speed = CLAMP((base_speed - steering_adj), -MAX_SPEED, MAX_SPEED);
 
-		  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
-
-		  speed_adj = PID_Compute(&pid_speed, speed_err, delta);
-
-		  left_speed = current_left_speed + speed_adj;
-		  right_speed = current_right_speed - speed_adj;
-
-		  if(left_speed < 0){
-
+		  //if statements to determine direction from PID output
+		  if(left_speed < 0 && right_speed > 0){
 			  Motor_Direction(MOTOR_BACKWARD, MOTOR_FORWARD);
-			  HAL_Delay(50);
 		  }
-		  else if(right_speed < 0){
-
+		  else if(left_speed > 0 && right_speed < 0){
 			  Motor_Direction(MOTOR_FORWARD, MOTOR_BACKWARD);
-			  HAL_Delay(50);
 		  }
+		  else if((left_speed < 0 && right_speed < 0)){
+			  Motor_Direction(MOTOR_BACKWARD, MOTOR_BACKWARD);
+		  }
+		  else {
+		  	  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
+		  }
+		 Motor_Speed(left_speed, right_speed);
 
-		  Motor_Speed(left_speed, right_speed);
-
-		  steering_adj = PID_Compute(&pid_steer, centering_err, delta);
-
-		  left_speed = current_left_speed + steering_adj;
-		  right_speed = current_left_speed - steering_adj;
-		  Motor_Speed(left_speed, right_speed);
-
-		  current_left_speed = left_speed;
-		  current_right_speed = right_speed;
-
-		  HAL_Delay(10);
-	  }*/
+		 prev_front_filtered = front_filtered;
+		 prev_right_filtered = right_filtered;
+		 prev_left_filtered = left_filtered;
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -369,8 +319,8 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 79;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Prescaler = 39;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED3;
   htim2.Init.Period = 999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -409,6 +359,65 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 39;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 999;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
 
 }
 
@@ -517,23 +526,49 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin
-                          |Front_Sensor_Pin|Left_Sensor_Pin|GPIO_PIN_8|Back_Sensor_Pin, GPIO_PIN_RESET);
+                          |Front_Sensor_Pin|Left_Sensor_Pin|Right_Sensor_Pin|Back_Sensor_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, Blue_Pin|Red_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(Green_GPIO_Port, Green_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PushButton_Pin */
+  GPIO_InitStruct.Pin = PushButton_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(PushButton_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : IN1_Pin IN2_Pin IN3_Pin IN4_Pin
-                           Front_Sensor_Pin Left_Sensor_Pin PC8 Back_Sensor_Pin */
+                           Front_Sensor_Pin Left_Sensor_Pin Right_Sensor_Pin Back_Sensor_Pin */
   GPIO_InitStruct.Pin = IN1_Pin|IN2_Pin|IN3_Pin|IN4_Pin
-                          |Front_Sensor_Pin|Left_Sensor_Pin|GPIO_PIN_8|Back_Sensor_Pin;
+                          |Front_Sensor_Pin|Left_Sensor_Pin|Right_Sensor_Pin|Back_Sensor_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Blue_Pin Red_Pin */
+  GPIO_InitStruct.Pin = Blue_Pin|Red_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Green_Pin */
+  GPIO_InitStruct.Pin = Green_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(Green_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -542,6 +577,80 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void RGB_Off(void)
+{
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET); // Red
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);  // Green
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);  // Blue
+}
+
+void RGB_SetColor(uint8_t red, uint8_t green, uint8_t blue)
+{
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, red ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, green ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, blue ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+void buzzer_RGB(float distance_cm)
+{
+	if (distance_cm < 25.0f) {
+		blink_interval_ticks = 100;
+
+		Red = GPIO_PIN_SET;
+		Green = GPIO_PIN_RESET;
+		Blue = GPIO_PIN_RESET;
+
+		buzzer_enabled = 1;
+	}
+	else if (distance_cm >= 25.0f && distance_cm < 45.0f) {
+		blink_interval_ticks = 300;
+
+		Red = GPIO_PIN_SET;
+		Green = GPIO_PIN_RESET;
+		Blue = GPIO_PIN_RESET;
+
+		buzzer_enabled = 1;
+	}
+	else if (distance_cm > 45.0f && distance_cm < SAFE_DIST) {
+
+		blink_interval_ticks = 500;
+
+		Red = GPIO_PIN_SET;
+		Green = GPIO_PIN_SET;
+		Blue = GPIO_PIN_RESET;
+
+		buzzer_enabled = 1;
+	}
+	else {
+
+		blink_interval_ticks = 0;
+		buzzer_enabled = 0;
+
+		Red = GPIO_PIN_RESET;
+		Green = GPIO_PIN_SET;
+		Blue = GPIO_PIN_RESET;
+	}
+}
+//interrupt driven timers to help minimize CPU latency
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+
+  if (htim->Instance == TIM3){
+	  if(buzzer_enabled == 1 && counter < blink_interval_ticks){
+		counter++;
+		HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+    	RGB_SetColor(Red, Green, Blue);
+    	TIM3->CCR1 = blink_interval_ticks;
+
+    	if(counter >= blink_interval_ticks){
+    		buzzer_enabled = 0;
+    		counter = 0;
+    		blink_interval_ticks = 0;
+    		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+    		RGB_Off();
+    	}
+	 }
+  }
+}
 /* USER CODE END 4 */
 
 /**

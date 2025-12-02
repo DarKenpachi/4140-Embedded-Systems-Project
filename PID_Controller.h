@@ -4,7 +4,7 @@
 
 typedef struct{
 
-	//Controller gains
+	//controller gains
 	float Kp;
 	float Ki;
 	float Kd;
@@ -23,8 +23,8 @@ typedef struct{
 } PID_Controller;
 
 void PID_Init(PID_Controller *pid, float Kp, float Ki, float Kd, float setpoint,
-													int8_t min_out, int8_t max_out);
+												int8_t min_out, int8_t max_out);
 
-int8_t PID_Compute(PID_Controller *pid, float current_value, float delta);
+float PID_Compute(PID_Controller *pid, float current_value, float delta, int8_t flag);
 
 #endif /* INC_PID_CONTROLLER_H_ */
