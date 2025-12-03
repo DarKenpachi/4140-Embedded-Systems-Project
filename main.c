@@ -101,6 +101,9 @@ volatile GPIO_PinState Red;
 volatile GPIO_PinState Green;
 volatile GPIO_PinState Blue;
 
+//------------------ Daniel's change. Add a state variable for the LED/Buzzer toggle
+volatile int8_t led_buzzer_state = 0; // 0 for OFF, 1 for ON
+
 uint16_t blink_interval_ticks = 0;
 int8_t buzzer_enabled = 0;
 /* USER CODE END PV */
@@ -634,6 +637,7 @@ void buzzer_RGB(float distance_cm)
 //interrupt driven timers to help minimize CPU latency
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
+	/*****Sharif original code****************
   if (htim->Instance == TIM3){
 	  if(buzzer_enabled == 1 && counter < blink_interval_ticks){
 		counter++;
@@ -649,7 +653,42 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     		RGB_Off();
     	}
 	 }
-  }
+	}*/
+
+	/*********Daniel's code *************/
+	if(htim -> Instance == TIM3){
+		//check if the warning system is enabled
+		if(buzzer_enabled == 1 && blink_interval_tick > 0){
+			counter++;
+
+			if(counter >= blink_interval_ticks){
+				//toggle the state
+				if(led-buzzer_state == 0){
+					//turn ON (set color and start pwm0
+					RGC_setColor(Red, Green< Blue);
+					//start buzzer pwm
+					HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+					// Set PWM duty cycle (CCR1) to a non-zero value for sound
+					// Assuming 50% duty cycle
+					TIM3 -> CCR1 = htim3.Instance -> ARR / 2;
+					led_buzzer_state = 1;
+				} else {
+					/// turn off
+					RGB_Off();
+					HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1); //stop buzzer pwm
+					led_buzzer_state = 0;
+				}
+				// reset counter for the next toggle period
+				counter = 0;
+			}
+		} else {
+			//If buzzer is not enabled (distance is safe), ensure everything is off
+            RGB_Off();
+            HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+            led_buzzer_state = 0; // Ensure state is tracked as off
+            counter = 0; // Reset counter for when it's re-enabled
+		}
+	}
 }
 /* USER CODE END 4 */
 
@@ -683,3 +722,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
