@@ -42,7 +42,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-volatile Sensors sensor[NUM_SENSORS];
+Sensors sensor[NUM_SENSORS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +59,7 @@ volatile Sensors sensor[NUM_SENSORS];
 extern DMA_HandleTypeDef hdma_tim4_ch1;
 extern DMA_HandleTypeDef hdma_tim4_ch2;
 extern DMA_HandleTypeDef hdma_tim4_ch3;
+extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 /* USER CODE BEGIN EV */
 
@@ -245,6 +246,20 @@ void DMA1_Channel5_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles TIM3 global interrupt.
+  */
+void TIM3_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM3_IRQn 0 */
+
+  /* USER CODE END TIM3_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim3);
+  /* USER CODE BEGIN TIM3_IRQn 1 */
+
+  /* USER CODE END TIM3_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM4 global interrupt.
   */
 void TIM4_IRQHandler(void)
@@ -253,29 +268,29 @@ void TIM4_IRQHandler(void)
 	uint32_t current_captured;
 	if((TIM4->SR & TIM_SR_CC1IF) != 0){
 		current_captured = TIM4->CCR1;
-		sensor_handle(&sensor, current_captured, 0);
+		sensor_handle(sensor, current_captured, 0);
 		TIM4->SR &= ~TIM_SR_CC1IF;
 	}
 
 	if((TIM4->SR & TIM_SR_CC2IF) != 0){
 		current_captured = TIM4->CCR2;
-		sensor_handle(&sensor, current_captured, 1);
+		sensor_handle(sensor, current_captured, 1);
 		TIM4->SR &= ~TIM_SR_CC2IF;
 	}
 
 	if((TIM4->SR & TIM_SR_CC3IF) != 0){
 		current_captured = TIM4->CCR3;
-		sensor_handle(&sensor, current_captured, 2);
+		sensor_handle(sensor, current_captured, 2);
 		TIM4->SR &= ~TIM_SR_CC3IF;
 	}
 
 	if((TIM4->SR & TIM_SR_CC4IF) != 0){
 		current_captured = TIM4->CCR4;
-		sensor_handle(&sensor, current_captured, 3);
+		sensor_handle(sensor, current_captured, 3);
 		TIM4->SR &= ~TIM_SR_CC4IF;
 	}
   /* USER CODE END TIM4_IRQn 0 */
-  //HAL_TIM_IRQHandler(&htim4);
+  HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
 
   /* USER CODE END TIM4_IRQn 1 */

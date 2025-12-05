@@ -39,18 +39,18 @@
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)))
 
 //Rover parameters
-#define MAX_SPEED 80
-#define SAFE_DIST 65.0f
+#define MAX_SPEED 90
+#define SAFE_DIST 75.0f
 #define SETPOINT 0.0f
 
 //Steering PID gains
-#define KP_Steer 0.62f
+#define KP_Steer 0.33f
 #define KI_Steer 0.0f
-#define KD_Steer 0.0375f
+#define KD_Steer 0.072f
 
 //Speed PID gains
-#define KP_Speed 0.92f
-#define KI_Speed 0.12f
+#define KP_Speed 0.91f
+#define KI_Speed 0.08f
 #define KD_Speed 0.0f
 
 #define ALPHA 0.9f
@@ -92,8 +92,6 @@ volatile int16_t left_speed  = 0;
 volatile int16_t right_speed = 0;
 volatile int8_t flag = 0;
 
-static uint32_t counter = 0;
-
 extern Sensors sensor[NUM_SENSORS];
 
 GPIO_PinState button_state;
@@ -101,11 +99,10 @@ volatile GPIO_PinState Red;
 volatile GPIO_PinState Green;
 volatile GPIO_PinState Blue;
 
-//------------------ Daniel's change. Add a state variable for the LED/Buzzer toggle
-volatile int8_t led_buzzer_state = 0; // 0 for OFF, 1 for ON
-
+uint32_t last_toggle = 0;
 uint16_t blink_interval_ticks = 0;
 int8_t buzzer_enabled = 0;
+int8_t toggle = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -231,23 +228,27 @@ int main(void)
 		  right_speed = CLAMP((base_speed - steering_adj), -MAX_SPEED, MAX_SPEED);
 
 		  //if statements to determine direction from PID output
+		  //left turn
 		  if(left_speed < 0 && right_speed > 0){
 			  Motor_Direction(MOTOR_BACKWARD, MOTOR_FORWARD);
 		  }
+		  //right turn
 		  else if(left_speed > 0 && right_speed < 0){
 			  Motor_Direction(MOTOR_FORWARD, MOTOR_BACKWARD);
 		  }
+		  //reverse
 		  else if((left_speed < 0 && right_speed < 0)){
 			  Motor_Direction(MOTOR_BACKWARD, MOTOR_BACKWARD);
 		  }
+		  //forward
 		  else {
 		  	  Motor_Direction(MOTOR_FORWARD, MOTOR_FORWARD);
 		  }
-		 Motor_Speed(left_speed, right_speed);
+		  Motor_Speed(left_speed, right_speed);
 
-		 prev_front_filtered = front_filtered;
-		 prev_right_filtered = right_filtered;
-		 prev_left_filtered = left_filtered;
+		  prev_front_filtered = front_filtered;
+		  prev_right_filtered = right_filtered;
+		  prev_left_filtered = left_filtered;
 	  }
   }
   /* USER CODE END 3 */
@@ -593,11 +594,12 @@ void RGB_SetColor(uint8_t red, uint8_t green, uint8_t blue)
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, green ? GPIO_PIN_SET : GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, blue ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
-
+//sets the delay for the toggle of rgb and buzzer in ms depending on the distance of the front sensor
+//when it is greater than safe distance, light turns green and buzzer stops
 void buzzer_RGB(float distance_cm)
 {
-	if (distance_cm < 25.0f) {
-		blink_interval_ticks = 100;
+	if (distance_cm < 25.0f){
+		blink_interval_ticks = 75;
 
 		Red = GPIO_PIN_SET;
 		Green = GPIO_PIN_RESET;
@@ -605,8 +607,8 @@ void buzzer_RGB(float distance_cm)
 
 		buzzer_enabled = 1;
 	}
-	else if (distance_cm >= 25.0f && distance_cm < 45.0f) {
-		blink_interval_ticks = 300;
+	else if (distance_cm > 25.0f && distance_cm < 45.0f){
+		blink_interval_ticks = 250;
 
 		Red = GPIO_PIN_SET;
 		Green = GPIO_PIN_RESET;
@@ -614,7 +616,7 @@ void buzzer_RGB(float distance_cm)
 
 		buzzer_enabled = 1;
 	}
-	else if (distance_cm > 45.0f && distance_cm < SAFE_DIST) {
+	else if (distance_cm > 45.0f && distance_cm < SAFE_DIST){
 
 		blink_interval_ticks = 500;
 
@@ -624,71 +626,40 @@ void buzzer_RGB(float distance_cm)
 
 		buzzer_enabled = 1;
 	}
-	else {
+	else{
 
 		blink_interval_ticks = 0;
 		buzzer_enabled = 0;
+		last_toggle = 0;
 
-		Red = GPIO_PIN_RESET;
-		Green = GPIO_PIN_SET;
-		Blue = GPIO_PIN_RESET;
+		RGB_SetColor(0,1,0);
 	}
 }
 //interrupt driven timers to help minimize CPU latency
+//toggle function implemented to turn on and off depending on
+//the interval ticks set in buzzer_RGB()
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
-	/*****Sharif original code****************
   if (htim->Instance == TIM3){
-	  if(buzzer_enabled == 1 && counter < blink_interval_ticks){
-		counter++;
-		HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-    	RGB_SetColor(Red, Green, Blue);
-    	TIM3->CCR1 = blink_interval_ticks;
+	  if(buzzer_enabled){
+		if((HAL_GetTick() - last_toggle) >= blink_interval_ticks){
+		  last_toggle = HAL_GetTick();
+		  toggle = !toggle;
 
-    	if(counter >= blink_interval_ticks){
-    		buzzer_enabled = 0;
-    		counter = 0;
-    		blink_interval_ticks = 0;
-    		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-    		RGB_Off();
-    	}
-	 }
-	}*/
-
-	/*********Daniel's code *************/
-	if(htim -> Instance == TIM3){
-		//check if the warning system is enabled
-		if(buzzer_enabled == 1 && blink_interval_tick > 0){
-			counter++;
-
-			if(counter >= blink_interval_ticks){
-				//toggle the state
-				if(led-buzzer_state == 0){
-					//turn ON (set color and start pwm0
-					RGC_setColor(Red, Green< Blue);
-					//start buzzer pwm
-					HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-					// Set PWM duty cycle (CCR1) to a non-zero value for sound
-					// Assuming 50% duty cycle
-					TIM3 -> CCR1 = htim3.Instance -> ARR / 2;
-					led_buzzer_state = 1;
-				} else {
-					/// turn off
-					RGB_Off();
-					HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1); //stop buzzer pwm
-					led_buzzer_state = 0;
-				}
-				// reset counter for the next toggle period
-				counter = 0;
-			}
-		} else {
-			//If buzzer is not enabled (distance is safe), ensure everything is off
-            RGB_Off();
-            HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-            led_buzzer_state = 0; // Ensure state is tracked as off
-            counter = 0; // Reset counter for when it's re-enabled
-		}
+		  if(toggle){
+			  TIM3->CCR1 = 100;
+			  RGB_SetColor(Red, Green, Blue);
+		  }
+		  else if(!toggle){
+			  TIM3->CCR1 = 0;
+			  RGB_Off();
+		  }
+	  }
 	}
+	else if(!buzzer_enabled){
+		TIM3->CCR1 = 0;
+	}
+  }
 }
 /* USER CODE END 4 */
 
@@ -722,4 +693,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-

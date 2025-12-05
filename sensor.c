@@ -45,7 +45,7 @@ void sensor_handle(Sensors *sensor, uint32_t ccr_val, uint8_t i){
 void Trigger_Pulse(void){
 
 	int i;
-	for(i = 0; i < NUM_SENSORS - 1; i++){
+	for(i = 0; i < NUM_SENSORS; i++){
 
 		if(i == 0){
 
@@ -73,7 +73,7 @@ void backTrigger(void){
 	delayMicroseconds(10);
 	HAL_GPIO_WritePin(BACK_TRIG_PORT, BACK_TRIG_PIN, GPIO_PIN_RESET);
 
-	HAL_Delay(40);
+	HAL_Delay(50);
 }
 void delayMicroseconds(uint32_t microseconds){
 

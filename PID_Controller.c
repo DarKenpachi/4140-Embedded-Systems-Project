@@ -27,12 +27,12 @@ float PID_Compute(PID_Controller *pid, float current_value, float delta, int8_t 
 
 	float p = pid->Kp * error;
 
-	pid->integral += error * delta;
+	pid->integral += error;
 	pid->integral = CLAMP(pid->integral, pid->min_output / pid->Ki, pid->max_output / pid->Ki);
 
 	float i = pid->Ki * pid->integral;
 
-	float derivative = (error - pid->prev_error) / delta;
+	float derivative = error - pid->prev_error;
 
 	float d = pid->Kd * derivative;
 
